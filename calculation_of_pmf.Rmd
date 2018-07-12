@@ -1,0 +1,210 @@
+---
+title: "Calculation of PMF and Densities"
+output:
+  github_document:
+    html_preview: true
+  html_document:
+    df_print: paged
+    code_folding: hide
+---
+
+
+
+```{r, echo=FALSE}
+# # Below is the general setup that will be used to figure out the path: the string Sys.info()["nodename"] will give you the name of the comptuer if you will eventually need it. 
+# #This changes the current working directory to the file's.
+# library(rstudioapi) # load it
+# # # the following line is for getting the path of your current open file
+# current_path <- rstudioapi::getActiveDocumentContext()$path
+# # # The next line set the working directory to the relevant one:
+# setwd(dirname(current_path ))
+# # # you can make sure you are in the right directory
+# print( getwd() )
+```
+
+
+```{r, echo=FALSE}
+suppressMessages(library(ggplot2))
+suppressMessages(library(pracma))
+suppressMessages(library(dplyr))
+suppressMessages(library(gridExtra))
+suppressMessages(library(grid))
+
+read  <- function (input ){
+  if(file.exists(input)){
+    flag <<- TRUE
+  num=count.fields(input)
+  value <- read.csv(input , sep = " ", header = FALSE)
+  if (max(num)==4) {
+    names(value) = c("x","y","real","imag")
+  } else   if (max(num)==5) {
+    names(value) = c("x","y","z","real","imag")
+  }
+  return(value);
+  } else{
+    flag <<- FALSE
+  }
+}
+
+ is_current <- function(fname){
+    if (!file.exists(fname))        
+      {return (FALSE)}
+    if (file.info(fname)$ctime  < file.info(gsub('.all','.p0.bin',fname))$ctime)
+      { return (FALSE)}
+   else { return (TRUE)}}
+
+  rhos = c("rhoda.all", "rhodb.all", "rho_exp_nr.all","rhog_exp.all")
+  
+
+  
+  print_denstities<-function (folder){
+    setwd("..")
+    setwd(folder)
+    index=0
+    plot_list = list()
+  for (rho in rhos){
+         if (!is_current(rho)){
+           base::system(paste("catbin.exe ", "$(basename" , rho ,".all )"  ) )
+         }
+        yo<-read(rho)
+        print(yo)
+            if (sum(yo$real) == 0 ){
+    flag <<- FALSE
+    next()
+  }
+        if (flag != FALSE){
+         index=index+1;
+             plot_list [[index]] <- ggplot2::ggplot(yo, aes(x=x, y=y, fill=real) ) +  ggtitle(paste(rho)) + geom_tile() + scale_fill_gradientn(colours = rainbow(5))
+          # +ggplot2::scale_fill_gradient(limits = c(0,6))
+          # + ggplot2::scale_fill_gradient(low = "black", high = "red")
+        }
+  }
+    # gridExtra::grid.arrange(p1, p2, nrow = 1)
+    n <- length(plot_list)
+    nCol <- ceil(sqrt(n))
+    do.call("grid.arrange", c(plot_list,   top=folder , ncol=nCol ))
+    setwd("..")
+  }
+  
+  
+  
+  print_fields<-function (folder,field_flag=2){
+    setwd("..")
+    setwd(folder)
+    index=0
+    tmp<-dir()
+    tmp2<-tmp[grep("w",tmp)]
+    tmp3<-tmp2[grep(".p0.bin",tmp2)]
+    tmp3<-gsub(".p0.bin",".all",tmp3)
+    fields<-switch (field_flag,
+      c("real","imag"),
+      c("real"),
+       c("imag")
+    )
+          plot_list = list()
+  for (rho in tmp3){
+         if (!is_current(rho)){
+           base::system(paste("catbin.exe ", "$(basename" , rho ,".all )"  ) )
+         }
+        yo<-read(rho)
+        if (flag != FALSE){
+         index=index+1;
+             plot_list [[index]] <- ggplot2::ggplot(yo, aes_string(x="x", y="y", fill=fields) ) +  ggtitle(paste(rho)) + geom_tile()+scale_fill_gradientn(colours = rainbow(5))
+          # +ggplot2::scale_fill_gradient(limits = c(0,6))
+          # + ggplot2::scale_fill_gradient(low = "black", high = "red")
+        }
+  }
+    # gridExtra::grid.arrange(p1, p2, nrow = 1)
+    n <- length(plot_list)
+    # print(n)
+    nCol <- ceil(sqrt(n))
+    # print(nCol)
+    do.call("grid.arrange", c(plot_list,   top=folder , ncol=nCol  ))
+    
+    setwd("..")
+
+  }
+  
+print_field <- function (fname,field="real"){
+             if (!is_current(fname)){
+           base::system(paste("catbin.exe ", "$(basename" , fname ,".all )"  ) )
+         }
+        yo<-read(fname)
+        if (flag != FALSE){
+            print( ggplot2::ggplot(yo, aes_string(x="x", y="y", fill=field) ) +  ggtitle(gsub("/"," ",fname)) + geom_tile() +scale_fill_gradientn(colours = rainbow(5)) ) 
+        }
+  }
+  
+  
+```
+
+
+```{r, echo=FALSE}
+# This gets the all the folders that are contained in the pmf_calculation
+experiments <- list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+experiments<-experiments[grep("PN",experiments)]
+experiments<-sort(experiments)
+experiments<-experiments[-grep("res", experiments)]
+
+```
+
+
+
+This reads and stores the actual hamiltonians 
+```{r, echo=FALSE}
+i=1;
+for (exp in experiments){
+  
+fname=file.path(exp,'data.dat')
+skip_lines<- (length(readLines(fname))-1)
+
+temp<-read.csv(fname, header = FALSE , sep = ' ' , skip = skip_lines )
+strings<-strsplit(exp, "-")[[1]]
+temp$PN = strings[2]
+temp$dist <- strings[4]
+if (i){
+  i=i-1
+  stored<- temp
+} else {
+  stored<-rbind(stored,temp)
+}
+  
+}
+colnames(stored)[2] <- "Hamiltonian"
+refine <- dplyr::select(stored,Hamiltonian,PN,dist)
+refine$PN <- as.numeric(refine$PN)
+refine$dist <- as.numeric(refine$dist)
+
+```
+
+
+
+## Plotting Hamil(P/N,dist)
+```{r}
+refine <- refine %>% dplyr::filter(PN <=5 )
+print(ggplot2::ggplot(refine,aes(x=dist, y=Hamiltonian,color=as.factor(PN))) + geom_point()+scale_color_hue(l = 30, c = 360))
+
+```
+
+## Plotting Densities
+```{r}
+experiments <- list.dirs(path = ".", full.names = FALSE, recursive = FALSE)
+experiments<-experiments[grep("PN",experiments)]
+experiments<-sort(experiments)
+
+# for (i in 1:5){
+#   print_denstities(experiments[i])
+# }
+for (i in experiments[grep("res",experiments)])
+{
+  hi1<-print_fields(i,2)
+  hi2<-print_fields(i,3)
+}
+
+
+```
+
+## Plotting Fields
+```{r}
+print_field(file.path("PN-5.00-dx-0.0125","wpl.all"),"imag")
+```
